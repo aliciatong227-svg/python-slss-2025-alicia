@@ -3,7 +3,7 @@
 # Date:
 
 import random
-
+import time
 import pygame
 
 # COLOURS - (R, G, B)
@@ -35,65 +35,96 @@ class Block(pygame.sprite.Sprite):
 
 class Mario(pygame.sprite.Sprite):
     def __init__(self):
-        """Player sprite"""
+        """The player"""
         super().__init__()
 
-        # Two copies of image: right-facing and left-facing
-        self.image_right = pygame.image.load("assets/mario-snes.png")
+        # Right version of Mario and Left version
+        self.image_right =  pygame.image.load("assets/mario-snes.png")
         self.image_right = pygame.transform.scale_by(self.image_right, 0.5)
         self.image_left = pygame.transform.flip(self.image_right, True, False)
-        self.image = self.image_right
 
+        self.image = self.image_right
         self.rect = self.image.get_rect()
 
-        # Keep track of last x-coord
-        self.last_x = 0
-
-        # Mario's "Life"
+        self.previous_x = 0               # help with direction
         self.health = 100
+        self.points = 0
 
-    def decrease_health(self, mag: int) -> int:
-        """Decrease player's health by magnitude.
+    def calc_damage(self, amt: int) -> int:
+        """Decrease player health by amt
         Returns:
-            current health that Mario has after the change
-        """
-        self.health -= mag
+            Remaining health"""
+        self.health -= amt
         return self.health
 
+    def incr_score(self, amt: int) -> int:
+        """Increases player score by amt
+        Returns:
+            Score"""
+        self.points += amt
+        return self.points
+
+    def get_damage_percentage(self) -> float:
+        return self.health / 100
 
     def update(self):
-        """Have Mario follow the mouse.
-        Set the "right" Mario image based on where he's facing."""
+        """Update Mario's location based on the mouse pos
+        Update Mario's image based on where he's going"""
         self.rect.center = pygame.mouse.get_pos()
 
-        # Mario faces right if and only if the previous x
-        # is less than the current x
-        if self.last_x < self.rect.x:
+        # If Mario's previous x less than current x
+        #   Then Mario is facing Right
+        # If Mario's previous x is greater than current x
+        #   Then Mario is facing Left
+        if self.previous_x < self.rect.x:
             self.image = self.image_right
-        elif self.last_x > self.rect.x:
+        elif self.previous_x > self.rect.x:
             self.image = self.image_left
 
-        # Update the last_x
-        self.last_x = self.rect.x
+        self.previous_x = self.rect.x
+
 
 class Enemy(pygame.sprite.Sprite):
     def __init__(self):
-        """Goomba"""
         super().__init__()
-
         self.image = pygame.image.load("assets/goomba-nes.png")
         self.rect = self.image.get_rect()
-        # No initial location -> (0, 0)
 
-        # Velocity of the Enemy
         self.vel_x = 0
         self.vel_y = 0
+
+        self.damage = 1
 
     def update(self):
         # movement in the x- and y-axis
         self.rect.x += self.vel_x
         self.rect.y += self.vel_y
-        # TODO: randomize movement
+
+    def level_up(self):
+        # increase damage
+        self.damage *= 2
+
+class Safe_Pack(pygame.sprite.Sprite):
+    def __init__(self):
+         super().__init__()
+         self.image_right = pygame.image.load("assets/vector-illustration-first-aid-kit-260nw-2499481599.webp")
+         self.image_right = pygame.transform.scale_by(self.image_right, 0.1)
+         self.image = self.image_right
+         self.rect = self.image.get_rect()
+         self.health = 10
+
+class HealthBar(pygame.Surface):
+    def __init__(self, width: int, height: int):
+        self._width = width
+        self._height = height
+        super().__init__((width, height))
+
+        self.fill(RED)
+
+    def update_info(self, percentage: float):
+        """Updates the healthbar with the given percentage"""
+        self.fill(RED)
+        pygame.draw.rect(self, GREEN, (0, 0, percentage * self._width, self._height))
 
 def game():
     pygame.init()
@@ -110,11 +141,16 @@ def game():
     # Variables
     done = False
     clock = pygame.time.Clock()
+    health_bar = HealthBar(200, 10)
+    num_enemies = 7
+    num_blocks = 100
+    num_safe = 5
 
     # Create a sprite group
     all_sprites_group = pygame.sprite.Group()
     block_sprites_group = pygame.sprite.Group()
     enemy_sprites_group = pygame.sprite.Group()
+    safe_sprite_group = pygame.sprite.Group()
 
     # Create player sprite
     player = Mario()
@@ -125,7 +161,7 @@ def game():
 
     # TODO: Check collision with Enemies
     # Create 3 enemies to start
-    for _ in range(3):
+    for _ in range(num_enemies):
         enemy_one = Enemy()
         # Randomize position at bottom-left
         random_x = random.randrange(20, 100)
@@ -139,16 +175,24 @@ def game():
         enemy_sprites_group.add(enemy_one)
 
     # Create 100 blocks
-    blocks = 0
-    for _ in range(100):
+
+    for _ in range(num_blocks):
         block = Block()
         # randomize their location
-        block.rect.centerx = random.randrange(10, WIDTH-10)
-        block.rect.centery = random.randrange(10, HEIGHT-10)
+        block.rect.centerx = random.randrange(0, WIDTH-10)
+        block.rect.centery = random.randrange(0, HEIGHT-10)
         # add them to the sprite group
         all_sprites_group.add(block)
         block_sprites_group.add(block)
-        blocks += 1
+
+    for _ in range(num_safe):
+         safe = Safe_Pack()
+         # randomize their location
+         safe.rect.centerx = random.randrange(0, WIDTH-10)
+         safe.rect.centery = random.randrange(0, HEIGHT-10)
+         # add them to the sprite group
+         all_sprites_group.add(safe)
+         safe_sprite_group.add(safe)
 
 
     # ------------ MAIN GAME LOOP
@@ -176,19 +220,32 @@ def game():
            print("----")
            print("Mario has collided with a block!")
            print(blocks_collided)
-           blocks -= 1
-           print(blocks)
+           num_blocks -= 1
+           print(num_blocks)
+
+        safe_collided = pygame.sprite.spritecollide(player, safe_sprite_group, False)
+        if safe_collided and player.health < 80:
+            pygame.sprite.spritecollide(player, safe_sprite_group, True)
+            player.calc_damage(-20)
+            print("----")
+            print("Mario regaining health!")
+            print(player.health)
+            num_safe -= 1
+            if num_safe <=0:
+                print("NO MORE SAFE PACKS LEFTTT!!!!!!")
 
         # TODO: Mario collides with enemy
         enemies_collided = pygame.sprite.spritecollide(player, enemy_sprites_group, False)
         for enemy in enemies_collided:
             # Decrease Mario's life by some number
-            print(player.decrease_health(1))
-            if player.health < 0:
-                all_sprites_group.remove(player)
+            player.calc_damage(enemy.damage)
+        if player.health < 0:
+            done = True
 
-        if blocks == 0:
-           print("gameover")
+        if num_blocks <= 20:
+           print("You pass")
+           time.sleep(5)
+           done = True
 
 
         # ------ DRAWING TO SCREEN
